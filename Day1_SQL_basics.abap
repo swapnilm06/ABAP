@@ -141,3 +141,4 @@ LOOP AT gt_join INTO DATA(gs_join).
            gs_join-bukrs,
            gs_join-akont.
 ENDLOOP.
+
