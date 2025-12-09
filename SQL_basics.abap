@@ -1,25 +1,24 @@
-REPORT z_demo_reports_kna1_knb1.
+REPORT z_abap_report_performance_demo.
 
 *---------------------------------------------------------------------*
-*  Topic Covered
-*  1. Classical Report
-*  2. Selection Screen
-*  3. Open SQL
-*     - SELECT / SELECT SINGLE
-*     - FOR ALL ENTRIES
-*     - INNER JOIN
-*     - LEFT OUTER JOIN
-*  4. Best Practices
-*---------------------------------------------------------------------*
-
-*---------------------------------------------------------------------*
-* Selection Screen (Optional screen)
+* Selection Screen
 *---------------------------------------------------------------------*
 SELECT-OPTIONS: s_kunnr FOR kna1-kunnr,
                 s_bukrs FOR knb1-bukrs.
 
 *---------------------------------------------------------------------*
-* Type Declarations
+* Final Output Structure (One Table)
+*---------------------------------------------------------------------*
+TYPES: BEGIN OF ty_final,
+         kunnr TYPE kna1-kunnr,   "Customer
+         name1 TYPE kna1-name1,   "Name
+         land1 TYPE kna1-land1,   "Country
+         bukrs TYPE knb1-bukrs,   "Company Code
+         akont TYPE knb1-akont,   "Reconciliation Account
+       END OF ty_final.
+
+*---------------------------------------------------------------------*
+* Helper Structures
 *---------------------------------------------------------------------*
 TYPES: BEGIN OF ty_kna1,
          kunnr TYPE kna1-kunnr,
@@ -27,21 +26,19 @@ TYPES: BEGIN OF ty_kna1,
          land1 TYPE kna1-land1,
        END OF ty_kna1.
 
-TYPES: BEGIN OF ty_join,
-         kunnr TYPE kna1-kunnr,
-         name1 TYPE kna1-name1,
+TYPES: BEGIN OF ty_knb1,
+         kunnr TYPE knb1-kunnr,
          bukrs TYPE knb1-bukrs,
          akont TYPE knb1-akont,
-       END OF ty_join.
+       END OF ty_knb1.
 
 *---------------------------------------------------------------------*
 * Data Declarations
 *---------------------------------------------------------------------*
-DATA: gt_kna1 TYPE STANDARD TABLE OF ty_kna1,
-      gs_kna1 TYPE ty_kna1.
-
-DATA: gt_join TYPE STANDARD TABLE OF ty_join,
-      gs_join TYPE ty_join.
+DATA: gt_kna1  TYPE STANDARD TABLE OF ty_kna1,
+      gt_knb1  TYPE STANDARD TABLE OF ty_knb1,
+      gt_final TYPE STANDARD TABLE OF ty_final,
+      gs_final TYPE ty_final.
 
 DATA: gv_name TYPE kna1-name1.
 
@@ -51,110 +48,96 @@ DATA: gv_name TYPE kna1-name1.
 START-OF-SELECTION.
 
 *---------------------------------------------------------------------*
-* 1. SELECT SINGLE example
+* 1. SELECT SINGLE (Single record fetch)
 *---------------------------------------------------------------------*
 SELECT SINGLE name1
-  INTO gv_name
+  INTO @gv_name
   FROM kna1
   WHERE kunnr = '0000001000'.
 
-IF sy-subrc = 0.
-  WRITE: / 'SELECT SINGLE Result:', gv_name.
-ENDIF.
-
-ULINE.
-
 *---------------------------------------------------------------------*
-* 2. SELECT Statement (Without *)
+* 2. SELECT KNA1 (Base table)
 *---------------------------------------------------------------------*
 SELECT kunnr
        name1
        land1
   FROM kna1
-  INTO TABLE gt_kna1
-  WHERE kunnr IN s_kunnr.
-
-WRITE: / 'Simple SELECT Output:'.
-LOOP AT gt_kna1 INTO gs_kna1.
-  WRITE: / gs_kna1-kunnr,
-           gs_kna1-name1,
-           gs_kna1-land1.
-ENDLOOP.
-
-ULINE.
+  INTO TABLE @gt_kna1
+  WHERE kunnr IN @s_kunnr.
 
 *---------------------------------------------------------------------*
-* 3. FOR ALL ENTRIES example
+* 3. FOR ALL ENTRIES (Avoid SELECT in LOOP)
 *---------------------------------------------------------------------*
-IF gt_kna1 IS NOT INITIAL.
+IF gt_kna1 IS NOT INITIAL.        "Mandatory check
 
   SELECT kunnr
          bukrs
          akont
     FROM knb1
-    INTO TABLE @DATA(gt_knb1)
-    FOR ALL ENTRIES IN gt_kna1
-    WHERE kunnr = gt_kna1-kunnr
-      AND bukrs IN s_bukrs.
-
-  WRITE: / 'FOR ALL ENTRIES Output:'.
-  LOOP AT gt_knb1 INTO DATA(gs_knb1).
-    WRITE: / gs_knb1-kunnr,
-             gs_knb1-bukrs,
-             gs_knb1-akont.
-  ENDLOOP.
+    INTO TABLE @gt_knb1
+    FOR ALL ENTRIES IN @gt_kna1
+    WHERE kunnr = @gt_kna1-kunnr
+      AND bukrs IN @s_bukrs.
 
 ENDIF.
 
-ULINE.
+*---------------------------------------------------------------------*
+* 4. Merge FAE Data into ONE Final Table
+*---------------------------------------------------------------------*
+LOOP AT gt_kna1 INTO DATA(gs_kna1).
+
+  LOOP AT gt_knb1 INTO DATA(gs_knb1)
+       WHERE kunnr = gs_kna1-kunnr.
+
+    CLEAR gs_final.
+    gs_final-kunnr = gs_kna1-kunnr.
+    gs_final-name1 = gs_kna1-name1.
+    gs_final-land1 = gs_kna1-land1.
+    gs_final-bukrs = gs_knb1-bukrs.
+    gs_final-akont = gs_knb1-akont.
+
+    APPEND gs_final TO gt_final.
+
+  ENDLOOP.
+ENDLOOP.
 
 *---------------------------------------------------------------------*
-* 4. INNER JOIN example
+* 5. INNER JOIN (Best Performance)
 *---------------------------------------------------------------------*
 SELECT a~kunnr
        a~name1
+       a~land1
        b~bukrs
        b~akont
   FROM kna1 AS a
   INNER JOIN knb1 AS b
     ON a~kunnr = b~kunnr
-  INTO TABLE gt_join
-  WHERE a~kunnr IN s_kunnr
-    AND b~bukrs IN s_bukrs.
+  INTO TABLE @DATA(gt_join)
+  WHERE a~kunnr IN @s_kunnr
+    AND b~bukrs IN @s_bukrs.
 
-WRITE: / 'INNER JOIN Output:'.
-LOOP AT gt_join INTO gs_join.
-  WRITE: / gs_join-kunnr,
-           gs_join-name1,
-           gs_join-bukrs,
-           gs_join-akont.
+*---------------------------------------------------------------------*
+* 6. Classical Report Output
+*---------------------------------------------------------------------*
+WRITE: / 'FOR ALL ENTRIES Output (Merged Table)'.
+ULINE.
+
+LOOP AT gt_final INTO gs_final.
+  WRITE: / gs_final-kunnr,
+           gs_final-name1,
+           gs_final-land1,
+           gs_final-bukrs,
+           gs_final-akont.
 ENDLOOP.
 
 ULINE.
+WRITE: / 'INNER JOIN Output (Fastest)'.
+ULINE.
 
-*---------------------------------------------------------------------*
-* 5. LEFT OUTER JOIN example
-*---------------------------------------------------------------------*
-CLEAR gt_join.
-
-SELECT a~kunnr
-       a~name1
-       b~bukrs
-       b~akont
-  FROM kna1 AS a
-  LEFT OUTER JOIN knb1 AS b
-    ON a~kunnr = b~kunnr
-  INTO TABLE gt_join
-  WHERE a~kunnr IN s_kunnr.
-
-WRITE: / 'LEFT OUTER JOIN Output:'.
-LOOP AT gt_join INTO gs_join.
+LOOP AT gt_join INTO DATA(gs_join).
   WRITE: / gs_join-kunnr,
            gs_join-name1,
+           gs_join-land1,
            gs_join-bukrs,
            gs_join-akont.
 ENDLOOP.
-
-*---------------------------------------------------------------------*
-* End of Classical Report
-*---------------------------------------------------------------------*
