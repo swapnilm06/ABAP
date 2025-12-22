@@ -1,0 +1,123 @@
+*&---------------------------------------------------------------------*
+*& Report ZINTERACTIVE_TEST
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zinteractive_test.
+
+
+TABLES : vbap, VBAk.
+
+SELECT-OPTIONS: p_vbeln FOR vbap-vbeln.
+
+
+TYPES: BEGIN OF ty_vbak,
+         vbeln TYPE vbeln_va,
+         erdat TYPE erdat,
+       END OF ty_vbak.
+
+
+TYPES: BEGIN OF ty_vbap,
+         vbeln TYPE vbeln_va,
+         posnr TYPE posnr_va,
+         matnr TYPE matnr,
+       END OF ty_vbap.
+
+DATA: lt_vbak TYPE TABLE OF ty_vbak,
+      lt_vbap TYPE TABLE OF ty_vbap.
+
+
+"fetch data from first table
+SELECT vbeln, erdat
+FROM vbak
+WHERE vbeln IN @p_vbeln
+INTO TABLE @lt_vbak
+.
+
+
+"create a fieldcat
+
+DATA: lt_fieldcat TYPE slis_t_fieldcat_alv.
+DATA: lt_fieldcat2 TYPE slis_t_fieldcat_alv,
+      ls_fieldcat  TYPE slis_fieldcat_alv.
+
+
+
+"mordern way to create fieldcat "update syntax
+
+"value expression to fill internal tables ---
+lt_fieldcat = VALUE #(
+( fieldname = 'VBELN' col_pos = '01' tabname = 'LT_VBAK' seltext_m = 'Sales no'  hotspot = 'X' )  "first field of internal table
+( fieldname = 'ERDAT' col_pos = '02' tabname = 'LT_VBAK' seltext_m = 'creation date'  )  "first field of internal table
+
+).
+
+
+"display first table ----
+
+CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+  EXPORTING
+    i_callback_program      = sy-repid
+    i_callback_user_command = 'USER_COMMAND'
+    it_fieldcat             = lt_fieldcat
+  TABLES
+    t_outtab                = lt_vbak
+  EXCEPTIONS
+    program_error           = 1
+    OTHERS                  = 2.
+IF sy-subrc <> 0.
+* Implement suitable error handling here
+ENDIF.
+
+
+*--once user click ---
+
+
+FORM user_command USING ucomm LIKE sy-ucomm rs_selfield TYPE slis_selfield.
+
+  IF ucomm = '&IC1'.
+
+    "get value of click event
+    DATA(lv_vbeln) = rs_selfield-value.
+
+    "get data from second table
+
+    IF lv_vbeln IS NOT INITIAL.
+      SELECT vbeln, posnr, matnr
+      FROM vbap
+      WHERE vbeln = @lv_vbeln
+      INTO TABLE @DATA(lt_vbap).
+    ENDIF.
+
+
+    lt_fieldcat2 = VALUE #(
+
+    ( fieldname = 'POSNR' col_pos = '03' tabname = 'LT_VBAP' seltext_m = 'Postal code'   )  "first field of internal table
+    ( fieldname = 'MATNR' col_pos = '04' tabname = 'LT_VBAP' seltext_m = 'material no'   )  "first field of internal table
+    ).
+
+    IF lt_vbap IS NOT INITIAL.
+
+      CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+        EXPORTING
+          i_callback_program      = sy-repid
+*         I_CALLBACK_PF_STATUS_SET          = ' '
+          i_callback_user_command = 'USER_COMMAND'
+          it_fieldcat             = lt_fieldcat2
+        TABLES
+          t_outtab                = lt_vbap
+        EXCEPTIONS
+          program_error           = 1
+          OTHERS                  = 2.
+      IF sy-subrc <> 0.
+* Implement suitable error handling here
+      ENDIF.
+
+    ELSE.
+      MESSAGE 'data not found in table vbap' TYPE 'S' DISPLAY LIKE 'E'.
+
+    ENDIF.
+
+  ENDIF.
+
+ENDFORM.
